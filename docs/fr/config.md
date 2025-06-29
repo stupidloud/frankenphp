@@ -112,7 +112,7 @@ other.example.com {
 L'utilisation de la directive `php_server` est généralement suffisante,
 mais si vous avez besoin d'un contrôle total, vous pouvez utiliser la directive `php`, qui permet un plus grand niveau de finesse dans la configuration.
 La directive `php` transmet toutes les entrées à PHP, au lieu de vérifier d'abord si
-c'est un fichier PHP ou pas. En savoir plus à ce sujet dans la [page performances](performance.md).
+c'est un fichier PHP ou pas. En savoir plus à ce sujet dans la [page performances](performance.md#try_files).
 
 Utiliser la directive `php_server` est équivalent à cette configuration :
 
@@ -235,6 +235,7 @@ Vous trouverez plus d'informations sur ce paramètre dans la [documentation Cadd
 Les variables d'environnement suivantes peuvent être utilisées pour insérer des directives Caddy dans le `Caddyfile` sans le modifier :
 
 - `SERVER_NAME` : change [les adresses sur lesquelles écouter](https://caddyserver.com/docs/caddyfile/concepts#addresses), les noms d'hôte fournis seront également utilisés pour le certificat TLS généré
+- `SERVER_ROOT` : change le répertoire racine du site, par défaut `public/`
 - `CADDY_GLOBAL_OPTIONS` : injecte [des options globales](https://caddyserver.com/docs/caddyfile/options)
 - `FRANKENPHP_CONFIG` : insère la configuration sous la directive `frankenphp`
 
