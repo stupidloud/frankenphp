@@ -33,6 +33,13 @@
 ZEND_TSRMLS_CACHE_DEFINE()
 #endif
 
+/**
+ * The list of modules to reload on each request. If an external module
+ * requires to be reloaded between requests, it is possible to hook on
+ * `sapi_module.activate` and `sapi_module.deactivate`.
+ *
+ * @see https://github.com/DataDog/dd-trace-php/pull/3169 for an example
+ */
 static const char *MODULES_TO_RELOAD[] = {"filter", "session", NULL};
 
 frankenphp_version frankenphp_get_version() {
@@ -121,7 +128,6 @@ static void frankenphp_worker_request_shutdown() {
   zend_try { php_output_end_all(); }
   zend_end_try();
 
-  /* TODO: store the list of modules to reload in a global module variable */
   const char **module_name;
   zend_module_entry *module;
   for (module_name = MODULES_TO_RELOAD; *module_name; module_name++) {
@@ -223,7 +229,6 @@ static int frankenphp_worker_request_startup() {
       }
     }
 
-    /* TODO: store the list of modules to reload in a global module variable */
     const char **module_name;
     zend_module_entry *module;
     for (module_name = MODULES_TO_RELOAD; *module_name; module_name++) {
@@ -243,9 +248,7 @@ static int frankenphp_worker_request_startup() {
 }
 
 PHP_FUNCTION(frankenphp_finish_request) { /* {{{ */
-  if (zend_parse_parameters_none() == FAILURE) {
-    RETURN_THROWS();
-  }
+  ZEND_PARSE_PARAMETERS_NONE();
 
   if (go_is_context_done(thread_index)) {
     RETURN_FALSE;
@@ -313,9 +316,7 @@ PHP_FUNCTION(frankenphp_getenv) {
 
 /* {{{ Fetch all HTTP request headers */
 PHP_FUNCTION(frankenphp_request_headers) {
-  if (zend_parse_parameters_none() == FAILURE) {
-    RETURN_THROWS();
-  }
+  ZEND_PARSE_PARAMETERS_NONE();
 
   struct go_apache_request_headers_return headers =
       go_apache_request_headers(thread_index);
@@ -373,9 +374,7 @@ static void add_response_header(sapi_header_struct *h,
 
 PHP_FUNCTION(frankenphp_response_headers) /* {{{ */
 {
-  if (zend_parse_parameters_none() == FAILURE) {
-    RETURN_THROWS();
-  }
+  ZEND_PARSE_PARAMETERS_NONE();
 
   array_init(return_value);
   zend_llist_apply_with_argument(
@@ -546,10 +545,7 @@ static int frankenphp_startup(sapi_module_struct *sapi_module) {
   return php_module_startup(sapi_module, &frankenphp_module);
 }
 
-static int frankenphp_deactivate(void) {
-  /* TODO: flush everything */
-  return SUCCESS;
-}
+static int frankenphp_deactivate(void) { return SUCCESS; }
 
 static size_t frankenphp_ub_write(const char *str, size_t str_length) {
   struct go_ub_write_return result =
@@ -641,7 +637,7 @@ void frankenphp_register_bulk(
     ht_key_value_pair gateway_interface, ht_key_value_pair server_protocol,
     ht_key_value_pair server_software, ht_key_value_pair http_host,
     ht_key_value_pair auth_type, ht_key_value_pair remote_ident,
-    ht_key_value_pair request_uri) {
+    ht_key_value_pair request_uri, ht_key_value_pair ssl_cipher) {
   HashTable *ht = Z_ARRVAL_P(track_vars_array);
   frankenphp_register_trusted_var(remote_addr.key, remote_addr.val,
                                   remote_addr.val_len, ht);
@@ -664,6 +660,8 @@ void frankenphp_register_bulk(
   frankenphp_register_trusted_var(https.key, https.val, https.val_len, ht);
   frankenphp_register_trusted_var(ssl_protocol.key, ssl_protocol.val,
                                   ssl_protocol.val_len, ht);
+  frankenphp_register_trusted_var(ssl_cipher.key, ssl_cipher.val,
+                                  ssl_cipher.val_len, ht);
   frankenphp_register_trusted_var(request_scheme.key, request_scheme.val,
                                   request_scheme.val_len, ht);
   frankenphp_register_trusted_var(server_name.key, server_name.val,
@@ -747,6 +745,15 @@ void frankenphp_register_variable_safe(char *key, char *val, size_t val_len,
       sapi_module.input_filter(PARSE_SERVER, key, &val, new_val_len,
                                &new_val_len)) {
     php_register_variable_safe(key, val, new_val_len, track_vars_array);
+  }
+}
+
+static inline void register_server_variable_filtered(const char *key,
+                                                     char **val,
+                                                     size_t *val_len,
+                                                     zval *track_vars_array) {
+  if (sapi_module.input_filter(PARSE_SERVER, key, val, *val_len, val_len)) {
+    php_register_variable_safe(key, *val, *val_len, track_vars_array);
   }
 }
 
@@ -1069,7 +1076,7 @@ static void cli_register_file_handles(bool no_close) /* {{{ */
 
 static void sapi_cli_register_variables(zval *track_vars_array) /* {{{ */
 {
-  size_t len;
+  size_t len = strlen(cli_script);
   char *docroot = "";
 
   /*
@@ -1079,33 +1086,21 @@ static void sapi_cli_register_variables(zval *track_vars_array) /* {{{ */
   php_import_environment_variables(track_vars_array);
 
   /* Build the special-case PHP_SELF variable for the CLI version */
-  len = strlen(cli_script);
-  if (sapi_module.input_filter(PARSE_SERVER, "PHP_SELF", &cli_script, len,
-                               &len)) {
-    php_register_variable_safe("PHP_SELF", cli_script, len, track_vars_array);
-  }
-  if (sapi_module.input_filter(PARSE_SERVER, "SCRIPT_NAME", &cli_script, len,
-                               &len)) {
-    php_register_variable_safe("SCRIPT_NAME", cli_script, len,
-                               track_vars_array);
-  }
+  register_server_variable_filtered("PHP_SELF", &cli_script, &len,
+                                    track_vars_array);
+  register_server_variable_filtered("SCRIPT_NAME", &cli_script, &len,
+                                    track_vars_array);
+
   /* filenames are empty for stdin */
-  if (sapi_module.input_filter(PARSE_SERVER, "SCRIPT_FILENAME", &cli_script,
-                               len, &len)) {
-    php_register_variable_safe("SCRIPT_FILENAME", cli_script, len,
-                               track_vars_array);
-  }
-  if (sapi_module.input_filter(PARSE_SERVER, "PATH_TRANSLATED", &cli_script,
-                               len, &len)) {
-    php_register_variable_safe("PATH_TRANSLATED", cli_script, len,
-                               track_vars_array);
-  }
+  register_server_variable_filtered("SCRIPT_FILENAME", &cli_script, &len,
+                                    track_vars_array);
+  register_server_variable_filtered("PATH_TRANSLATED", &cli_script, &len,
+                                    track_vars_array);
+
   /* just make it available */
   len = 0U;
-  if (sapi_module.input_filter(PARSE_SERVER, "DOCUMENT_ROOT", &docroot, len,
-                               &len)) {
-    php_register_variable_safe("DOCUMENT_ROOT", docroot, len, track_vars_array);
-  }
+  register_server_variable_filtered("DOCUMENT_ROOT", &docroot, &len,
+                                    track_vars_array);
 }
 /* }}} */
 
@@ -1182,3 +1177,34 @@ int frankenphp_reset_opcache(void) {
 }
 
 int frankenphp_get_current_memory_limit() { return PG(memory_limit); }
+
+static zend_module_entry *modules = NULL;
+static int modules_len = 0;
+static int (*original_php_register_internal_extensions_func)(void) = NULL;
+
+PHPAPI int register_internal_extensions(void) {
+  if (original_php_register_internal_extensions_func != NULL &&
+      original_php_register_internal_extensions_func() != SUCCESS) {
+    return FAILURE;
+  }
+
+  for (int i = 0; i < modules_len; i++) {
+    if (zend_register_internal_module(&modules[i]) == NULL) {
+      return FAILURE;
+    }
+  }
+
+  modules = NULL;
+  modules_len = 0;
+
+  return SUCCESS;
+}
+
+void register_extensions(zend_module_entry *m, int len) {
+  modules = m;
+  modules_len = len;
+
+  original_php_register_internal_extensions_func =
+      php_register_internal_extensions_func;
+  php_register_internal_extensions_func = register_internal_extensions;
+}

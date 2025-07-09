@@ -70,6 +70,7 @@ L'[option globale](https://caddyserver.com/docs/caddyfile/concepts#global-option
             env <key> <value> # Définit une variable d'environnement supplémentaire avec la valeur donnée. Peut être spécifié plusieurs fois pour régler plusieurs variables d'environnement.
             watch <path> # Définit le chemin d'accès à surveiller pour les modifications de fichiers. Peut être spécifié plusieurs fois pour plusieurs chemins.
             name <name> # Définit le nom du worker, utilisé dans les journaux et les métriques. Défaut : chemin absolu du fichier du worker
+            max_consecutive_failures <num> # Définit le nombre maximum d'échecs consécutifs avant que le worker ne soit considéré comme défaillant, -1 signifie que le worker redémarre toujours. Par défaut : 6.
         }
     }
 }
@@ -93,13 +94,15 @@ Vous pouvez aussi définir plusieurs workers si vous servez plusieurs applicatio
 
 ```caddyfile
 app.example.com {
+    root /path/to/app/public
     php_server {
-        root /path/to/app/public
+        root /path/to/app/public # permet une meilleure mise en cache
         worker index.php <num>
     }
 }
 
 other.example.com {
+    root /path/to/other/public
     php_server {
         root /path/to/other/public
         worker index.php <num>
@@ -112,7 +115,7 @@ other.example.com {
 L'utilisation de la directive `php_server` est généralement suffisante,
 mais si vous avez besoin d'un contrôle total, vous pouvez utiliser la directive `php`, qui permet un plus grand niveau de finesse dans la configuration.
 La directive `php` transmet toutes les entrées à PHP, au lieu de vérifier d'abord si
-c'est un fichier PHP ou pas. En savoir plus à ce sujet dans la [page performances](performance.md).
+c'est un fichier PHP ou pas. En savoir plus à ce sujet dans la [page performances](performance.md#try_files).
 
 Utiliser la directive `php_server` est équivalent à cette configuration :
 
@@ -235,6 +238,7 @@ Vous trouverez plus d'informations sur ce paramètre dans la [documentation Cadd
 Les variables d'environnement suivantes peuvent être utilisées pour insérer des directives Caddy dans le `Caddyfile` sans le modifier :
 
 - `SERVER_NAME` : change [les adresses sur lesquelles écouter](https://caddyserver.com/docs/caddyfile/concepts#addresses), les noms d'hôte fournis seront également utilisés pour le certificat TLS généré
+- `SERVER_ROOT` : change le répertoire racine du site, par défaut `public/`
 - `CADDY_GLOBAL_OPTIONS` : injecte [des options globales](https://caddyserver.com/docs/caddyfile/options)
 - `FRANKENPHP_CONFIG` : insère la configuration sous la directive `frankenphp`
 

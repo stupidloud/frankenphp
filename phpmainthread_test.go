@@ -96,8 +96,16 @@ func TestTransitionThreadsWhileDoingRequests(t *testing.T) {
 
 	assert.NoError(t, Init(
 		WithNumThreads(numThreads),
-		WithWorkers(worker1Name, worker1Path, 1, map[string]string{"ENV1": "foo"}, []string{}),
-		WithWorkers(worker2Name, worker2Path, 1, map[string]string{"ENV1": "foo"}, []string{}),
+		WithWorkers(worker1Name, worker1Path, 1,
+			WithWorkerEnv(map[string]string{"ENV1": "foo"}),
+			WithWorkerWatchMode([]string{}),
+			WithWorkerMaxFailures(0),
+		),
+		WithWorkers(worker2Name, worker2Path, 1,
+			WithWorkerEnv(map[string]string{"ENV1": "foo"}),
+			WithWorkerWatchMode([]string{}),
+			WithWorkerMaxFailures(0),
+		),
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
 	))
 
@@ -181,18 +189,20 @@ func TestFinishBootingAWorkerScript(t *testing.T) {
 }
 
 func TestReturnAnErrorIf2WorkersHaveTheSameFileName(t *testing.T) {
-	workers = make(map[string]*worker)
-	_, err1 := newWorker(workerOpt{fileName: "filename.php"})
-	_, err2 := newWorker(workerOpt{fileName: "filename.php"})
+	workers = []*worker{}
+	w, err1 := newWorker(workerOpt{fileName: "filename.php", maxConsecutiveFailures: defaultMaxConsecutiveFailures})
+	workers = append(workers, w)
+	_, err2 := newWorker(workerOpt{fileName: "filename.php", maxConsecutiveFailures: defaultMaxConsecutiveFailures})
 
 	assert.NoError(t, err1)
 	assert.Error(t, err2, "two workers cannot have the same filename")
 }
 
 func TestReturnAnErrorIf2ModuleWorkersHaveTheSameName(t *testing.T) {
-	workers = make(map[string]*worker)
-	_, err1 := newWorker(workerOpt{fileName: "filename.php", name: "workername"})
-	_, err2 := newWorker(workerOpt{fileName: "filename2.php", name: "workername"})
+	workers = []*worker{}
+	w, err1 := newWorker(workerOpt{fileName: "filename.php", name: "workername", maxConsecutiveFailures: defaultMaxConsecutiveFailures})
+	workers = append(workers, w)
+	_, err2 := newWorker(workerOpt{fileName: "filename2.php", name: "workername", maxConsecutiveFailures: defaultMaxConsecutiveFailures})
 
 	assert.NoError(t, err1)
 	assert.Error(t, err2, "two workers cannot have the same name")
@@ -200,12 +210,14 @@ func TestReturnAnErrorIf2ModuleWorkersHaveTheSameName(t *testing.T) {
 
 func getDummyWorker(fileName string) *worker {
 	if workers == nil {
-		workers = make(map[string]*worker)
+		workers = []*worker{}
 	}
 	worker, _ := newWorker(workerOpt{
-		fileName: testDataPath + "/" + fileName,
-		num:      1,
+		fileName:               testDataPath + "/" + fileName,
+		num:                    1,
+		maxConsecutiveFailures: defaultMaxConsecutiveFailures,
 	})
+	workers = append(workers, worker)
 	return worker
 }
 
@@ -232,9 +244,9 @@ func allPossibleTransitions(worker1Path string, worker2Path string) []func(*phpT
 				thread.boot()
 			}
 		},
-		func(thread *phpThread) { convertToWorkerThread(thread, workers[worker1Path]) },
+		func(thread *phpThread) { convertToWorkerThread(thread, getWorkerByPath(worker1Path)) },
 		convertToInactiveThread,
-		func(thread *phpThread) { convertToWorkerThread(thread, workers[worker2Path]) },
+		func(thread *phpThread) { convertToWorkerThread(thread, getWorkerByPath(worker2Path)) },
 		convertToInactiveThread,
 	}
 }

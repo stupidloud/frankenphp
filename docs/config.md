@@ -71,6 +71,7 @@ The `frankenphp` [global option](https://caddyserver.com/docs/caddyfile/concepts
 			env <key> <value> # Sets an extra environment variable to the given value. Can be specified more than once for multiple environment variables.
 			watch <path> # Sets the path to watch for file changes. Can be specified more than once for multiple paths.
 			name <name> # Sets the name of the worker, used in logs and metrics. Default: absolute path of worker file
+			max_consecutive_failures <num> # Sets the maximum number of consecutive failures before the worker is considered unhealthy, -1 means the worker will always restart. Default: 6.
 		}
 	}
 }
@@ -94,13 +95,15 @@ You can also define multiple workers if you serve multiple apps on the same serv
 
 ```caddyfile
 app.example.com {
+    root /path/to/app/public
 	php_server {
-		root /path/to/app/public
+		root /path/to/app/public # allows for better caching
 		worker index.php <num>
 	}
 }
 
 other.example.com {
+    root /path/to/other/public
 	php_server {
 		root /path/to/other/public
 		worker index.php <num>
@@ -113,7 +116,7 @@ other.example.com {
 Using the `php_server` directive is generally what you need,
 but if you need full control, you can use the lower-level `php` directive.
 The `php` directive passes all input to PHP, instead of first checking whether
-it's a PHP file or not. Read more about it in the [performance page](performance.md).
+it's a PHP file or not. Read more about it in the [performance page](performance.md#try_files).
 
 Using the `php_server` directive is equivalent to this configuration:
 
@@ -153,6 +156,7 @@ php_server [<matcher>] {
 		name <name> # Sets the name for the worker, used in logs and metrics. Default: absolute path of worker file. Always starts with m# when defined in a php_server block.
 		watch <path> # Sets the path to watch for file changes. Can be specified more than once for multiple paths.
 		env <key> <value> # Sets an extra environment variable to the given value. Can be specified more than once for multiple environment variables. Environment variables for this worker are also inherited from the php_server parent, but can be overwritten here.
+		match <path> # match the worker to a path pattern. Overrides try_files and can only be used in the php_server directive.
 	}
 	worker <other_file> <num> # Can also use the short form like in the global frankenphp block.
 }
@@ -203,6 +207,29 @@ where the FrankenPHP process was started. You can instead also specify one or mo
 
 The file watcher is based on [e-dant/watcher](https://github.com/e-dant/watcher).
 
+## Matching the worker to a path
+
+In traditional PHP applications, scripts are always placed in the public directory.
+This is also true for worker scripts, which are treated like any other PHP script.
+If you want to instead put the worker script outside the public directory, you can do so via the `match` directive.
+
+The `match` directive is an optimized alternative to `try_files` only available inside `php_server` and `php`.
+The following example will always serve a file in the public directory if present
+and otherwise forward the request to the worker matching the path pattern.
+
+```caddyfile
+{
+	frankenphp {
+		php_server {
+			worker {
+				file /path/to/worker.php # file can be outside of public path
+				match /api/* # all requests starting with /api/ will be handled by this worker
+			}
+		}
+	}
+}
+```
+
 ### Full Duplex (HTTP/1)
 
 When using HTTP/1.x, it may be desirable to enable full-duplex mode to allow writing a response before the entire body
@@ -236,6 +263,7 @@ You can find more information about this setting in the [Caddy documentation](ht
 The following environment variables can be used to inject Caddy directives in the `Caddyfile` without modifying it:
 
 - `SERVER_NAME`: change [the addresses on which to listen](https://caddyserver.com/docs/caddyfile/concepts#addresses), the provided hostnames will also be used for the generated TLS certificate
+- `SERVER_ROOT`: change the root directory of the site, defaults to `public/`
 - `CADDY_GLOBAL_OPTIONS`: inject [global options](https://caddyserver.com/docs/caddyfile/options)
 - `FRANKENPHP_CONFIG`: inject config under the `frankenphp` directive
 

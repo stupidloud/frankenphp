@@ -66,7 +66,11 @@ func runTest(t *testing.T, test func(func(http.ResponseWriter, *http.Request), *
 
 	initOpts := []frankenphp.Option{frankenphp.WithLogger(opts.logger)}
 	if opts.workerScript != "" {
-		initOpts = append(initOpts, frankenphp.WithWorkers("workerName", testDataDir+opts.workerScript, opts.nbWorkers, opts.env, opts.watch))
+		workerOpts := []frankenphp.WorkerOption{
+			frankenphp.WithWorkerEnv(opts.env),
+			frankenphp.WithWorkerWatchMode(opts.watch),
+		}
+		initOpts = append(initOpts, frankenphp.WithWorkers("workerName", testDataDir+opts.workerScript, opts.nbWorkers, workerOpts...))
 	}
 	initOpts = append(initOpts, opts.initOpts...)
 	if opts.phpIni != nil {
@@ -730,7 +734,7 @@ func TestEnvIsNotResetInWorkerMode(t *testing.T) {
 	}, &testOptions{workerScript: "env/remember-env.php"})
 }
 
-// reproduction of https://github.com/dunglas/frankenphp/issues/1061
+// reproduction of https://github.com/php/frankenphp/issues/1061
 func TestModificationsToEnvPersistAcrossRequests(t *testing.T) {
 	runTest(t, func(handler func(http.ResponseWriter, *http.Request), _ *httptest.Server, i int) {
 		for j := 0; j < 3; j++ {
